@@ -29,8 +29,9 @@ public class VSCodeDiscovery : IDiscovery
     string[] possiblePaths =
 #if UNITY_EDITOR_OSX
             {
-                "/Applications/Visual Studio Code.app",
-                "/Applications/Visual Studio Code - Insiders.app"
+				"/opt/homebrew/bin/nvim",
+                // "/Applications/Visual Studio Code.app",
+                // "/Applications/Visual Studio Code - Insiders.app"
             };
 #elif UNITY_EDITOR_WIN
             {
@@ -100,10 +101,6 @@ public class VSCodeDiscovery : IDiscovery
 
   static bool VSCodeExists(string path)
   {
-#if UNITY_EDITOR_OSX
-            return System.IO.Directory.Exists(path);
-#else
     return new FileInfo(path).Exists;
-#endif
   }
 }
