@@ -46,8 +46,8 @@ Edit > Preferences > External Tools > External Script Editor > select Neovim
 4. Start an nvim server
 
 ```
-# "/tmp/nvimsocket" is the name of the server and currently hardcoded
-nvim --listen /tmp/nvimsocket
+# "~/.cache/nvimsocket" is the name of the server and currently hardcoded
+nvim --listen ~/.cache/nvimsocket
 ```
 
 ## Usage
