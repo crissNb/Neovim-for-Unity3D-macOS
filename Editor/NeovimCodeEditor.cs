@@ -85,9 +85,6 @@ public class NeovimCodeEditor : IExternalCodeEditor
     // Callback to the IExternalCodeEditor when it has been chosen from the PreferenceWindow.
     public void Initialize(string editorInstallationPath) { }
 
-    // 	Unity calls this methodf when it populates "Preferences/External Tools" in order to allow the code editor to generate necessary GUI. For example, when creating an an argument field for modifying the arguments sent to the code editor.
-    public void OnGUI() { }
-
     // The external code editor needs to handle the request to open a file.
     public bool OpenProject(string filePath = "", int line = -1, int column = -1)
     {
@@ -116,7 +113,7 @@ public class NeovimCodeEditor : IExternalCodeEditor
                 UseShellExecute = true,
             }
         };
-		kittyProcess.Start();
+        kittyProcess.Start();
 
         return true;
     }
@@ -125,8 +122,8 @@ public class NeovimCodeEditor : IExternalCodeEditor
     {
         // according to: https://stackoverflow.com/a/15262019/637142
         // thans to this we will pass everything as one command
-		command = command.Replace("\"","\"\"");
-		Debug.Log(command);
+        command = command.Replace("\"", "\"\"");
+        Debug.Log(command);
 
         var proc = new Process
         {
@@ -208,4 +205,7 @@ public class NeovimCodeEditor : IExternalCodeEditor
         }
     }
 
+    public void OnGUI()
+    {
+    }
 }
