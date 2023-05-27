@@ -468,12 +468,12 @@ public class ProjectGeneration : IGenerator
         ProjectHeader(assembly, responseFilesData, projectBuilder);
         var references = new List<string>();
 
-        // foreach (string file in assembly.sourceFiles)
-        // {
-        //     var fullFile = m_FileIOProvider.EscapedRelativePathFor(file, ProjectDirectory);
-        //     projectBuilder.Append("     <Compile Include=\"").Append(fullFile).Append("\" />").Append(k_WindowsNewline);
-        // }
-        projectBuilder.Append("     <Compile Include=\"").Append("**/*.cs").Append("\" />").Append(k_WindowsNewline);
+        foreach (string file in assembly.sourceFiles)
+        {
+            var fullFile = m_FileIOProvider.EscapedRelativePathFor(file, ProjectDirectory);
+            projectBuilder.Append("     <Compile Include=\"").Append(fullFile).Append("\" />").Append(k_WindowsNewline);
+        }
+        // projectBuilder.Append("     <Compile Include=\"").Append("**/*.cs").Append("\" />").Append(k_WindowsNewline);
 
         // Append additional non-script files that should be included in project generation.
         if (allAssetsProjectParts.TryGetValue(assembly.name, out var additionalAssetsForProject))
