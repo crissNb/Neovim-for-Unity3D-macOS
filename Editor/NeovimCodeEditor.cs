@@ -10,202 +10,273 @@ using Debug = UnityEngine.Debug;
 [InitializeOnLoad]
 public class NeovimCodeEditor : IExternalCodeEditor
 {
-    const string nvim_argument = "nvim_arguments";
-    const string nvim_extension = "nvim_userExtensions";
+  const string nvim_argument = "nvim_arguments";
+  const string nvim_extension = "nvim_userExtensions";
 
-    // private const string PackageName = "com.cloudedmountain.ide.neovim";
-    // private const string NeovimLauncher = "com.cloudedmountain.ide.neovim.sh";
-    static readonly string[] _supportedFileNames = { "nvim" };
-    // static string DefaultArgument { get; } = "\"$(ProjectPath)\" -g \"$(File)\":$(Line):$(Column)";
-    // static string DefaultArgument { get; } = "--server /tmp/nvimsocket --remote $(filePath)";
-    static string DefaultApp => EditorPrefs.GetString("kScriptsDefaultApp");
+  // private const string PackageName = "com.cloudedmountain.ide.neovim";
+  // private const string NeovimLauncher = "com.cloudedmountain.ide.neovim.sh";
+  static readonly string[] _supportedFileNames = { "nvim" };
+  // static string DefaultArgument { get; } = "\"$(ProjectPath)\" -g \"$(File)\":$(Line):$(Column)";
+  // static string DefaultArgument { get; } = "--server /tmp/nvimsocket --remote $(filePath)";
+  static string DefaultApp => EditorPrefs.GetString("kScriptsDefaultApp");
 
-    IDiscovery _discoverability;
-    IGenerator _projectGeneration;
-    string _arguments;
 
-    static NeovimCodeEditor()
+  IDiscovery _discoverability;
+  IGenerator _projectGeneration;
+  string _arguments;
+
+  static NeovimCodeEditor()
+  {
+    var editor = new NeovimCodeEditor(new VSCodeDiscovery(), new ProjectGeneration(Directory.GetParent(Application.dataPath).FullName));
+
+    CodeEditor.Register(editor);
+    editor.CreateIfDoesntExist();
+  }
+
+  static bool SupportsExtension(string path)
+  {
+    var extension = Path.GetExtension(path);
+    if (string.IsNullOrEmpty(extension))
+      return false;
+    return HandledExtensions.Contains(extension.TrimStart('.'));
+  }
+
+  static string[] HandledExtensions
+  {
+    get
     {
-        var editor = new NeovimCodeEditor(new VSCodeDiscovery(), new ProjectGeneration(Directory.GetParent(Application.dataPath).FullName));
+      return HandledExtensionsString
+          .Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+          .Select(s => s.TrimStart('.', '*'))
+          .ToArray();
+    }
+  }
 
-        CodeEditor.Register(editor);
-        editor.CreateIfDoesntExist();
+  static string HandledExtensionsString
+  {
+    get => EditorPrefs.GetString(nvim_extension, string.Join(";", defaultExtensions));
+    set => EditorPrefs.SetString(nvim_extension, value);
+  }
+
+  static string[] defaultExtensions
+  {
+    get
+    {
+      var customExtensions = new[] { "json", "asmdef", "log" };
+      return EditorSettings.projectGenerationBuiltinExtensions
+          .Concat(EditorSettings.projectGenerationUserExtensions)
+          .Concat(customExtensions)
+          .Distinct().ToArray();
+    }
+  }
+
+  // private static CodeEditor.Installation[] installations;
+  // private static string launcherPath;
+
+  // Provide the editor with a list of known and supported editors that this instance supports. This gets called multiple times through execution and is not expected to be persistent. For example, after calling TryGetInstallationForPath this class may realize that you have added a custom code editor.
+  public CodeEditor.Installation[] Installations => _discoverability.PathCallback();
+
+
+  public NeovimCodeEditor(IDiscovery discovery, IGenerator projectGeneration)
+  {
+    _discoverability = discovery;
+    _projectGeneration = projectGeneration;
+  }
+
+  // Callback to the IExternalCodeEditor when it has been chosen from the PreferenceWindow.
+  public void Initialize(string editorInstallationPath) { }
+
+  // 	Unity calls this methodf when it populates "Preferences/External Tools" in order to allow the code editor to generate necessary GUI. For example, when creating an an argument field for modifying the arguments sent to the code editor.
+  public void OnGUI()
+  {
+    EditorGUILayout.LabelField("Generate .csproj files for:");
+    EditorGUI.indentLevel++;
+    SettingsButton(ProjectGenerationFlag.Embedded, "Embedded packages", "");
+    SettingsButton(ProjectGenerationFlag.Local, "Local packages", "");
+    SettingsButton(ProjectGenerationFlag.Registry, "Registry packages", "");
+    SettingsButton(ProjectGenerationFlag.Git, "Git packages", "");
+    SettingsButton(ProjectGenerationFlag.BuiltIn, "Built-in packages", "");
+#if UNITY_2019_3_OR_NEWER
+    SettingsButton(ProjectGenerationFlag.LocalTarBall, "Local tarball", "");
+#endif
+    SettingsButton(ProjectGenerationFlag.Unknown, "Packages from unknown sources", "");
+    RegenerateProjectFiles();
+    EditorGUI.indentLevel--;
+
+    HandledExtensionsString = EditorGUILayout.TextField(new GUIContent("Extensions handled: "), HandledExtensionsString);
+  }
+
+  void RegenerateProjectFiles()
+  {
+    var rect = EditorGUI.IndentedRect(EditorGUILayout.GetControlRect(new GUILayoutOption[] { }));
+    rect.width = 252;
+    if (GUI.Button(rect, "Regenerate project files"))
+    {
+      _projectGeneration.Sync();
+    }
+  }
+
+  void SettingsButton(ProjectGenerationFlag preference, string guiMessage, string toolTip)
+  {
+    var prevValue = _projectGeneration.AssemblyNameProvider.ProjectGenerationFlag.HasFlag(preference);
+    var newValue = EditorGUILayout.Toggle(new GUIContent(guiMessage, toolTip), prevValue);
+    if (newValue != prevValue)
+    {
+      _projectGeneration.AssemblyNameProvider.ToggleProjectGeneration(preference);
+    }
+  }
+
+  // The external code editor needs to handle the request to open a file.
+  public bool OpenProject(string filePath = "", int line = -1, int column = -1)
+  {
+    // ProcessStartInfo startInfo = new ProcessStartInfo
+    // {
+    //   Arguments = $"+{System.Math.Max(line, 0)} {filePath}",
+    //   FileName = launcherPath,
+    //   UseShellExecute = false,
+    //   RedirectStandardOutput = true,
+    // };
+    //
+    // Process.Start(startInfo);
+
+    // NEW
+    if (filePath != "" && (!SupportsExtension(filePath) || !File.Exists(filePath))) // Assets - Open C# Project passes empty path here
+    {
+      return false;
     }
 
-    static bool SupportsExtension(string path)
-    {
-        var extension = Path.GetExtension(path);
-        if (string.IsNullOrEmpty(extension))
-            return false;
-        return HandledExtensions.Contains(extension.TrimStart('.'));
-    }
+    if (line == -1)
+      line = 1;
+    if (column == -1)
+      column = 0;
 
-    static string[] HandledExtensions
+    var arguments = $"--servername ~/.cache/nvimsocket -c 'call cursor({line}, {column})' {filePath}";
+    Debug.Log(arguments);
+
+    // if (Arguments != DefaultArgument)
+    // {
+    //   arguments = _projectGeneration.ProjectDirectory != filePath
+    //       ? CodeEditor.ParseArgument(Arguments, filePath, line, column)
+    //       : _projectGeneration.ProjectDirectory;
+    // }
+    // else
+    // {
+    //   arguments = $@"""{_projectGeneration.ProjectDirectory}""";
+    //   if (_projectGeneration.ProjectDirectory != filePath && filePath.Length != 0)
+    //   {
+    //     arguments += $@" -g ""{filePath}"":{line}:{column}";
+    //   }
+    // }
+
+    // if (IsOSX)
+    // {
+    //   return OpenOSX(arguments);
+    // }
+
+    ExecuteBashCommand("nvr " + arguments);
+
+    // Focus Alacritty:
+    var alacrittyProcess = new Process
     {
-        get
+        StartInfo = new ProcessStartInfo
         {
-            return HandledExtensionsString
-                .Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(s => s.TrimStart('.', '*'))
-                .ToArray();
+            FileName = "open",
+            Arguments = $"/Applications/Alacritty.app/",
+            UseShellExecute = true,
         }
+    };
+    alacrittyProcess.Start();
+
+    return true;
+  }
+
+  static string ExecuteBashCommand(string command)
+  {
+      // according to: https://stackoverflow.com/a/15262019/637142
+      // thans to this we will pass everything as one command
+      command = command.Replace("\"", "\"\"");
+      Debug.Log(command);
+
+      var proc = new Process
+      {
+          StartInfo = new ProcessStartInfo
+          {
+              FileName = "/bin/bash",
+                       Arguments = "-c \"" + command + "\"",
+                       UseShellExecute = false,
+                       RedirectStandardOutput = true,
+                       CreateNoWindow = true
+          }
+      };
+
+      proc.Start();
+      proc.WaitForExit();
+
+      return proc.StandardOutput.ReadToEnd();
+  }
+
+
+  // Unity calls this function during initialization in order to sync the Project. This is different from SyncIfNeeded in that it does not get a list of changes.
+  public void SyncAll()
+  {
+    (_projectGeneration.AssemblyNameProvider as IPackageInfoCache)?.ResetPackageInfoCache();
+    AssetDatabase.Refresh();
+    _projectGeneration.Sync();
+  }
+
+  // When you change Assets in Unity, this method for the current chosen instance of IExternalCodeEditor parses the new and changed Assets.
+  public void SyncIfNeeded(string[] addedFiles, string[] deletedFiles, string[] movedFiles, string[] movedFromFiles, string[] importedFiles)
+  {
+    (_projectGeneration.AssemblyNameProvider as IPackageInfoCache)?.ResetPackageInfoCache();
+    _projectGeneration.SyncIfNeeded(addedFiles.Union(deletedFiles).Union(movedFiles).Union(movedFromFiles).ToList(), importedFiles);
+  }
+
+  // Unity stores the path of the chosen editor. An instance of IExternalCodeEditor can take responsibility for this path, by returning true when this method is being called. The out variable installation need to be constructed with the path and the name that should be shown in the "External Tools" code editor list.
+  public bool TryGetInstallationForPath(string editorPath, out CodeEditor.Installation installation)
+  {
+    var lowerCasePath = editorPath.ToLower();
+    var filename = Path.GetFileName(lowerCasePath).Replace(" ", "");
+    var installations = Installations;
+
+    if (!_supportedFileNames.Contains(filename))
+    {
+      installation = default;
+      return false;
     }
 
-    static string HandledExtensionsString
+    if (!installations.Any())
     {
-        get => EditorPrefs.GetString(nvim_extension, string.Join(";", defaultExtensions));
-        set => EditorPrefs.SetString(nvim_extension, value);
+      installation = new CodeEditor.Installation
+      {
+        Name = "Neovim",
+        Path = editorPath
+      };
     }
-
-    static string[] defaultExtensions
+    else
     {
-        get
+      try
+      {
+        installation = installations.First(inst => inst.Path == editorPath);
+      }
+      catch (InvalidOperationException)
+      {
+        installation = new CodeEditor.Installation
         {
-            var customExtensions = new[] { "json", "asmdef", "log" };
-            return EditorSettings.projectGenerationBuiltinExtensions
-                .Concat(EditorSettings.projectGenerationUserExtensions)
-                .Concat(customExtensions)
-                .Distinct().ToArray();
-        }
-    }
-
-    // private static CodeEditor.Installation[] installations;
-    // private static string launcherPath;
-
-    // Provide the editor with a list of known and supported editors that this instance supports. This gets called multiple times through execution and is not expected to be persistent. For example, after calling TryGetInstallationForPath this class may realize that you have added a custom code editor.
-    public CodeEditor.Installation[] Installations => _discoverability.PathCallback();
-
-
-    public NeovimCodeEditor(IDiscovery discovery, IGenerator projectGeneration)
-    {
-        _discoverability = discovery;
-        _projectGeneration = projectGeneration;
-    }
-
-    // Callback to the IExternalCodeEditor when it has been chosen from the PreferenceWindow.
-    public void Initialize(string editorInstallationPath) { }
-
-    // The external code editor needs to handle the request to open a file.
-    public bool OpenProject(string filePath = "", int line = -1, int column = -1)
-    {
-        if (filePath != "" && (!SupportsExtension(filePath) || !File.Exists(filePath))) // Assets - Open C# Project passes empty path here
-        {
-            return false;
-        }
-
-        if (line == -1)
-            line = 1;
-        if (column == -1)
-            column = 0;
-
-        var arguments = $"--servername ~/.cache/nvimsocket -c 'call cursor({line}, {column})' {filePath}";
-        Debug.Log(arguments);
-
-        ExecuteBashCommand("nvr " + arguments);
-
-        // Focus Kitty:
-        var kittyProcess = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = "open",
-                Arguments = $"/Applications/kitty.app/",
-                UseShellExecute = true,
-            }
+          Name = "Neovim",
+          Path = editorPath
         };
-        kittyProcess.Start();
-
-        return true;
+      }
     }
 
-    static string ExecuteBashCommand(string command)
+    return true;
+  }
+
+  public void CreateIfDoesntExist()
+  {
+    if (!_projectGeneration.SolutionExists())
     {
-        // according to: https://stackoverflow.com/a/15262019/637142
-        // thans to this we will pass everything as one command
-        command = command.Replace("\"", "\"\"");
-        Debug.Log(command);
-
-        var proc = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = "/bin/bash",
-                Arguments = "-c \"" + command + "\"",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                CreateNoWindow = true
-            }
-        };
-
-        proc.Start();
-        proc.WaitForExit();
-
-        return proc.StandardOutput.ReadToEnd();
+      _projectGeneration.Sync();
     }
-    // Unity calls this function during initialization in order to sync the Project. This is different from SyncIfNeeded in that it does not get a list of changes.
-    public void SyncAll()
-    {
-        (_projectGeneration.AssemblyNameProvider as IPackageInfoCache)?.ResetPackageInfoCache();
-        AssetDatabase.Refresh();
-        _projectGeneration.Sync();
-    }
+  }
 
-    // When you change Assets in Unity, this method for the current chosen instance of IExternalCodeEditor parses the new and changed Assets.
-    public void SyncIfNeeded(string[] addedFiles, string[] deletedFiles, string[] movedFiles, string[] movedFromFiles, string[] importedFiles)
-    {
-        (_projectGeneration.AssemblyNameProvider as IPackageInfoCache)?.ResetPackageInfoCache();
-        _projectGeneration.SyncIfNeeded(addedFiles.Union(deletedFiles).Union(movedFiles).Union(movedFromFiles).ToList(), importedFiles);
-    }
-
-    // Unity stores the path of the chosen editor. An instance of IExternalCodeEditor can take responsibility for this path, by returning true when this method is being called. The out variable installation need to be constructed with the path and the name that should be shown in the "External Tools" code editor list.
-    public bool TryGetInstallationForPath(string editorPath, out CodeEditor.Installation installation)
-    {
-        var lowerCasePath = editorPath.ToLower();
-        var filename = Path.GetFileName(lowerCasePath).Replace(" ", "");
-        var installations = Installations;
-
-        if (!_supportedFileNames.Contains(filename))
-        {
-            installation = default;
-            return false;
-        }
-
-        if (!installations.Any())
-        {
-            installation = new CodeEditor.Installation
-            {
-                Name = "Neovim",
-                Path = editorPath
-            };
-        }
-        else
-        {
-            try
-            {
-                installation = installations.First(inst => inst.Path == editorPath);
-            }
-            catch (InvalidOperationException)
-            {
-                installation = new CodeEditor.Installation
-                {
-                    Name = "Neovim",
-                    Path = editorPath
-                };
-            }
-        }
-
-        return true;
-    }
-
-    public void CreateIfDoesntExist()
-    {
-        if (!_projectGeneration.SolutionExists())
-        {
-            _projectGeneration.Sync();
-        }
-    }
-
-    public void OnGUI()
-    {
-    }
 }
